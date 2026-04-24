@@ -60,16 +60,19 @@ info "Branch name: ${BRANCH_NAME}"
 # ── create branch via GitLab API ─────────────────────────────────────────────
 
 info "Creating branch on GitLab..."
-BRANCH_RESP=$(curl -sf \
+BRANCH_RESP=$(curl -s \
   -X POST \
   -H "PRIVATE-TOKEN: ${GITLAB_TOKEN}" \
   -H "Content-Type: application/json" \
   -d "{\"branch\":\"${BRANCH_NAME}\",\"ref\":\"main\"}" \
-  "${API_BASE}/projects/${ENCODED_PROJECT}/repository/branches" 2>&1) || {
-    echo "$BRANCH_RESP" | grep -qi "already exists" \
-      && info "Branch already exists, continuing..." \
-      || die "Failed to create branch: ${BRANCH_RESP}"
-  }
+  "${API_BASE}/projects/${ENCODED_PROJECT}/repository/branches")
+if echo "$BRANCH_RESP" | grep -qi "already exists"; then
+  info "Branch already exists, continuing..."
+elif echo "$BRANCH_RESP" | grep -qi '"name"'; then
+  : # success — response contains branch name
+else
+  die "Failed to create branch: ${BRANCH_RESP}"
+fi
 
 # ── local git checkout ───────────────────────────────────────────────────────
 

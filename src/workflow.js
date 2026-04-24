@@ -36,7 +36,11 @@ async function run(issueNumber, options = {}) {
   const issue = await gitlab.getIssue(config.GITLAB_PROJECT_ID, issueNumber);
   console.log(chalk.green(`✔ Issue: ${issue.title}`));
   if (issue.description) {
-    console.log(chalk.gray(`  ${issue.description.split('\n')[0].substring(0, MAX_DESCRIPTION_PREVIEW_LENGTH)}`));
+    const firstLine = issue.description.split('\n')[0];
+    const preview = firstLine.length > MAX_DESCRIPTION_PREVIEW_LENGTH
+      ? firstLine.substring(0, MAX_DESCRIPTION_PREVIEW_LENGTH) + '...'
+      : firstLine;
+    console.log(chalk.gray(`  ${preview}`));
   }
 
   // Step 2: Build branch name
