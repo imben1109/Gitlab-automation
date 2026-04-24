@@ -1,0 +1,23 @@
+{
+  "name": "gitlab-automation",
+  "version": "1.0.0",
+  "description": "Automate GitLab issue workflow with GitHub Copilot AI planning",
+  "main": "src/workflow.js",
+  "bin": {
+    "gitlab-auto": "./bin/gitlab-auto.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "scripts": {
+    "start": "node bin/gitlab-auto.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "chalk": "^4.1.2",
+    "dotenv": "^16.3.1",
+    "inquirer": "^8.2.6",
+    "simple-git": "^3.20.0"
+  },
+  "license": "MIT"
+}
