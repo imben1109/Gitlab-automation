@@ -43,7 +43,7 @@ function ConvertTo-Slug {
 
 # ── read env vars ─────────────────────────────────────────────────────────────
 
-$GitLabUrl       = $env:GITLAB_URL       ?? 'https://gitlab.com'
+$GitLabUrl       = if ($env:GITLAB_URL) { $env:GITLAB_URL } else { 'https://gitlab.com' }
 $GitLabToken     = $env:GITLAB_TOKEN
 $GitLabProjectId = $env:GITLAB_PROJECT_ID
 $GitHubToken     = $env:GITHUB_TOKEN

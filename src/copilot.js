@@ -4,6 +4,7 @@ const axios = require('axios');
 const config = require('./config');
 
 const COPILOT_API_URL = 'https://api.githubcopilot.com/chat/completions';
+const EDITOR_VERSION = process.env.COPILOT_EDITOR_VERSION || 'vscode/1.85.0';
 
 /**
  * Call the GitHub Copilot Chat API to generate an implementation plan for a GitLab issue.
@@ -36,7 +37,7 @@ async function generatePlan(issueTitle, issueDescription) {
       headers: {
         Authorization: `Bearer ${config.GITHUB_TOKEN}`,
         'Content-Type': 'application/json',
-        'Editor-Version': 'vscode/1.85.0',
+        'Editor-Version': EDITOR_VERSION,
         'Copilot-Integration-Id': 'vscode-chat',
       },
     }

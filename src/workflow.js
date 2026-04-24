@@ -3,6 +3,8 @@
 const chalk = require('chalk');
 const inquirer = require('inquirer');
 const config = require('./config');
+
+const MAX_DESCRIPTION_PREVIEW_LENGTH = 120;
 const gitlab = require('./gitlab');
 const copilot = require('./copilot');
 const git = require('./git');
@@ -34,7 +36,7 @@ async function run(issueNumber, options = {}) {
   const issue = await gitlab.getIssue(config.GITLAB_PROJECT_ID, issueNumber);
   console.log(chalk.green(`✔ Issue: ${issue.title}`));
   if (issue.description) {
-    console.log(chalk.gray(`  ${issue.description.split('\n')[0].substring(0, 120)}`));
+    console.log(chalk.gray(`  ${issue.description.split('\n')[0].substring(0, MAX_DESCRIPTION_PREVIEW_LENGTH)}`));
   }
 
   // Step 2: Build branch name
@@ -55,8 +57,8 @@ async function run(issueNumber, options = {}) {
     }
   }
 
-  // Step 4: Checkout branch locally (if TARGET_REPO_PATH is set / repoPath provided)
-  if (options.repoPath || process.env.TARGET_REPO_PATH) {
+  // Step 4: Checkout branch locally if a repo path was explicitly provided
+  if (repoPath !== process.cwd()) {
     console.log(chalk.blue(`Checking out branch locally in ${repoPath}...`));
     try {
       await git.checkoutNewBranch(repoPath, branchName);
