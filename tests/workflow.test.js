@@ -78,6 +78,8 @@ const MOCK_MR = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.spyOn(console, 'log').mockImplementation(() => {});
+  jest.spyOn(console, 'error').mockImplementation(() => {});
   gitlab.getIssue.mockResolvedValue(MOCK_ISSUE);
   gitlab.createBranch.mockResolvedValue({});
   gitlab.createMergeRequest.mockResolvedValue(MOCK_MR);
@@ -116,6 +118,7 @@ describe('workflow.start — happy path', () => {
     await start(42);
 
     expect(git.ensureMainBranch).not.toHaveBeenCalled();
+    expect(git.checkoutNewBranch).not.toHaveBeenCalled();
   });
 
   test('checks out branch locally when repoPath is provided', async () => {
