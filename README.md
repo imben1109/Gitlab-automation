@@ -1,19 +1,26 @@
-# GitLab Automation with GitHub Copilot
+# GitLab Automation — Human-in-the-Loop
 
-Automate your GitLab issue workflow using GitHub Copilot AI. Given a GitLab issue number, this tool:
+A two-step CLI tool that bridges GitLab issue tracking and your local development workflow. It keeps you in control: start a branch from an issue, plan and code at your own pace, then commit and open a Merge Request with a single command.
 
-1. Fetches the issue details from GitLab
-2. Creates a new branch named `issue-<number>-<title-slug>`
-3. Asks GitHub Copilot to generate an implementation plan
-4. Displays the plan and optionally commits & pushes changes
-5. Creates a GitLab Merge Request with the Copilot plan and issue link
+## Workflow
+
+```
+Step 1 — start
+  Fetch issue → verify main is up-to-date → create feature branch
+  → checkout locally → export issue to issue-<iid>.md
+
+  ↓ (you plan, implement, and track progress in issue-<iid>.md)
+
+Step 2 — finish
+  Commit all changes with "feat: issue #<iid> - <title>"
+  → push branch → create Merge Request (description links to the issue)
+```
 
 ## Prerequisites
 
 - **Node.js** ≥ 18 (for the primary CLI)
 - **Git** installed and configured
 - **GitLab account** with a personal access token (scope: `api`)
-- **GitHub Copilot subscription** and a GitHub personal access token
 
 ## Setup
 
@@ -39,7 +46,6 @@ Copy `.env.example` to `.env` and set the following variables:
 | `GITLAB_URL` | No | GitLab instance URL (default: `https://gitlab.com`) |
 | `GITLAB_TOKEN` | **Yes** | GitLab personal access token (scope: `api`) |
 | `GITLAB_PROJECT_ID` | **Yes** | Project ID or `namespace/project` path |
-| `GITHUB_TOKEN` | **Yes** | GitHub token with Copilot access |
 | `TARGET_REPO_PATH` | No | Local path to the git repo (defaults to cwd) |
 
 ## Usage
@@ -50,50 +56,71 @@ Copy `.env.example` to `.env` and set the following variables:
 # Build first
 npm run build
 
-# Process issue #42
-node dist/cli.js 42
+# Step 1: start working on issue #42
+node dist/cli.js start 42
 
-# Skip confirmation prompt
-node dist/cli.js 42 --auto-confirm
+# Step 2: after making your changes, commit and open a MR
+node dist/cli.js finish 42
 
 # Specify a local repo path
-node dist/cli.js 42 --repo-path=/path/to/repo
+node dist/cli.js start 42 --repo-path=/path/to/repo
+node dist/cli.js finish 42 --repo-path=/path/to/repo
 ```
 
 ### npx (no install)
 
 ```bash
-npx gitlab-automation 42
+npx gitlab-automation start 42
+# ... make your changes ...
+npx gitlab-automation finish 42
 ```
 
 ### Bash script (bash + curl + git, no external dependencies)
 
 ```bash
 chmod +x scripts/gitlab-automation.sh
-./scripts/gitlab-automation.sh 42
+
+# Step 1: start
+./scripts/gitlab-automation.sh start 42
+
+# Step 2: finish
+./scripts/gitlab-automation.sh finish 42
 ```
 
 ### PowerShell script (Windows / cross-platform)
 
 ```powershell
-./scripts/gitlab-automation.ps1 -IssueNumber 42
+# Step 1: start
+./scripts/gitlab-automation.ps1 -Command start -IssueNumber 42
 
-# Skip confirmation
-./scripts/gitlab-automation.ps1 -IssueNumber 42 -AutoConfirm
+# Step 2: finish
+./scripts/gitlab-automation.ps1 -Command finish -IssueNumber 42
 ```
 
-## Workflow
+## Issue Markdown File
 
+After running `start`, an `issue-<iid>.md` file is created in your repo:
+
+```markdown
+# Issue #42: Fix the navbar
+
+**URL:** https://gitlab.com/mygroup/myproject/-/issues/42
+**Branch:** issue-42-fix-the-navbar
+
+## Description
+
+The navbar breaks on mobile.
+
+## Planning
+
+<!-- Add your implementation plan here -->
+
+## Progress
+
+- [ ] 
 ```
-GitLab Issue → Fetch details
-             → Build branch name (issue-<iid>-<slug>)
-             → Create branch via GitLab API
-             → Checkout branch locally (if repo path set)
-             → Ask GitHub Copilot for implementation plan
-             → Display plan
-             → Confirm → Commit & push changes
-             → Create Merge Request with plan + issue link
-```
+
+Edit this file to track your plan and progress before running `finish`.
 
 ## Project Structure
 
@@ -102,9 +129,8 @@ GitLab Issue → Fetch details
 │   ├── cli.ts                  CLI entry point (compiled → dist/cli.js)
 │   ├── config.ts               Environment config loader
 │   ├── gitlab.ts               GitLab REST API client
-│   ├── copilot.ts              GitHub Copilot Chat API client
 │   ├── git.ts                  Git operations (simple-git)
-│   └── workflow.ts             Orchestrates the full workflow
+│   └── workflow.ts             start() and finish() orchestration
 ├── scripts/
 │   ├── gitlab-automation.sh    Bash standalone script (bash/curl/sed only)
 │   └── gitlab-automation.ps1   PowerShell standalone script
