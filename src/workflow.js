@@ -131,4 +131,4 @@ async function run(issueNumber, options = {}) {
   console.log(chalk.green(`\n✔ Merge Request created: ${chalk.bold(mr.webUrl)}`));
 }
 
-module.exports = { run };
+module.exports = { run, slugify };
