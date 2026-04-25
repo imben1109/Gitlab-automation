@@ -1,13 +1,11 @@
 #!/usr/bin/env node
 'use strict';
 
-require('dotenv').config();
+import chalk from 'chalk';
+import { run } from './workflow';
 
-const chalk = require('chalk');
-const workflow = require('../src/workflow');
-
-function printUsage() {
-  console.log('Usage: gitlab-auto <issue-number> [--auto-confirm] [--repo-path=<path>]');
+function printUsage(): void {
+  console.log('Usage: gitlab-automation <issue-number> [--auto-confirm] [--repo-path=<path>]');
   console.log('');
   console.log('Options:');
   console.log('  --auto-confirm      Skip the confirmation prompt');
@@ -29,7 +27,7 @@ if (isNaN(issueNumber) || issueNumber <= 0) {
 }
 
 const autoConfirm = args.includes('--auto-confirm');
-let repoPath;
+let repoPath: string | undefined;
 for (const arg of args) {
   const match = arg.match(/^--repo-path=(.+)$/);
   if (match) {
@@ -37,12 +35,14 @@ for (const arg of args) {
   }
 }
 
-workflow
-  .run(issueNumber, { autoConfirm, repoPath })
-  .catch((err) => {
-    console.error(chalk.red(`\nError: ${err.message}`));
-    if (err.response) {
-      console.error(chalk.red(`  HTTP ${err.response.status}: ${JSON.stringify(err.response.data)}`));
-    }
-    process.exit(1);
-  });
+run(issueNumber, { autoConfirm, repoPath }).catch((err: unknown) => {
+  const message = err instanceof Error ? err.message : String(err);
+  const axiosErr = err as { response?: { status?: number; data?: unknown } };
+  console.error(chalk.red(`\nError: ${message}`));
+  if (axiosErr.response) {
+    console.error(
+      chalk.red(`  HTTP ${axiosErr.response.status}: ${JSON.stringify(axiosErr.response.data)}`)
+    );
+  }
+  process.exit(1);
+});

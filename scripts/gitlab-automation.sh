@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# gitlab-automation.sh — Standalone bash wrapper for GitLab issue automation.
-# Works with curl + git; if Node.js is available, delegates to bin/gitlab-auto.js.
+# gitlab-automation.sh — Standalone bash script for GitLab issue automation.
+# Requires only: bash, curl, git, sed — no Node.js, no Python.
 
 set -euo pipefail
 
@@ -14,7 +14,6 @@ info() { echo "INFO:  $*"; }
 : "${GITLAB_URL:?Missing GITLAB_URL}"
 : "${GITLAB_TOKEN:?Missing GITLAB_TOKEN}"
 : "${GITLAB_PROJECT_ID:?Missing GITLAB_PROJECT_ID}"
-: "${GITHUB_TOKEN:?Missing GITHUB_TOKEN}"
 
 # ── parse args ───────────────────────────────────────────────────────────────
 
@@ -22,11 +21,8 @@ ISSUE_NUMBER="${1:-}"
 [ -z "$ISSUE_NUMBER" ] && { echo "Usage: $0 <issue-number>"; exit 1; }
 [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]] || die "issue-number must be a positive integer"
 
-ENCODED_PROJECT=$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$GITLAB_PROJECT_ID" 2>/dev/null \
-  || echo "$GITLAB_PROJECT_ID" | sed 's|/|%2F|g')
-# NOTE: the sed fallback only encodes '/' — if your project ID contains other
-# special characters and node is unavailable, set GITLAB_PROJECT_ID
-# to the numeric project ID instead of the namespace/project path.
+# URL-encode the project ID (encode '/' as '%2F' for namespace/project paths).
+ENCODED_PROJECT=$(printf '%s' "$GITLAB_PROJECT_ID" | sed 's|/|%2F|g')
 
 API_BASE="${GITLAB_URL%/}/api/v4"
 
@@ -81,20 +77,7 @@ if git rev-parse --is-inside-work-tree &>/dev/null; then
     || info "Branch already exists locally, skipping checkout."
 fi
 
-# ── delegate to Node.js if available ─────────────────────────────────────────
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NODE_ENTRY="${SCRIPT_DIR}/../bin/gitlab-auto.js"
-
-if command -v node &>/dev/null && [ -f "$NODE_ENTRY" ]; then
-  info "Node.js found — delegating to gitlab-auto.js..."
-  node "$NODE_ENTRY" "$ISSUE_NUMBER" "$@"
-  exit $?
-fi
-
-info "Node.js not found — performing minimal workflow via curl."
-
-# ── fallback: create MR via curl ─────────────────────────────────────────────
+# ── create MR via curl ───────────────────────────────────────────────────────
 
 info "Creating Merge Request on GitLab..."
 MR_BODY="{

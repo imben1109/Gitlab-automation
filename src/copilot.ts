@@ -1,18 +1,19 @@
 'use strict';
 
-const axios = require('axios');
-const config = require('./config');
+import axios from 'axios';
+import config = require('./config');
 
 const COPILOT_API_URL = 'https://api.githubcopilot.com/chat/completions';
-const EDITOR_VERSION = process.env.COPILOT_EDITOR_VERSION || 'vscode/1.85.0';
+const EDITOR_VERSION  = process.env.COPILOT_EDITOR_VERSION || 'vscode/1.85.0';
 
 /**
- * Call the GitHub Copilot Chat API to generate an implementation plan for a GitLab issue.
- * @param {string} issueTitle
- * @param {string} issueDescription
- * @returns {Promise<string>} The plan text from Copilot
+ * Call the GitHub Copilot Chat API to generate an implementation plan for a
+ * GitLab issue.
  */
-async function generatePlan(issueTitle, issueDescription) {
+export async function generatePlan(
+  issueTitle: string,
+  issueDescription: string
+): Promise<string> {
   const systemPrompt =
     'You are a senior software developer. Given a GitLab issue, you will:\n' +
     '1. Produce a concise implementation plan (step-by-step).\n' +
@@ -29,25 +30,24 @@ async function generatePlan(issueTitle, issueDescription) {
     {
       model: 'gpt-4o',
       messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
+        { role: 'system',  content: systemPrompt },
+        { role: 'user',    content: userMessage  },
       ],
     },
     {
       headers: {
-        Authorization: `Bearer ${config.GITHUB_TOKEN}`,
-        'Content-Type': 'application/json',
-        'Editor-Version': EDITOR_VERSION,
+        Authorization:           `Bearer ${config.GITHUB_TOKEN}`,
+        'Content-Type':          'application/json',
+        'Editor-Version':        EDITOR_VERSION,
         'Copilot-Integration-Id': 'vscode-chat',
       },
     }
   );
 
-  const choice = response.data.choices && response.data.choices[0];
+  const choice =
+    response.data.choices && (response.data.choices as { message?: { content: string } }[])[0];
   if (!choice || !choice.message) {
     throw new Error('No response from Copilot API');
   }
   return choice.message.content;
 }
-
-module.exports = { generatePlan };

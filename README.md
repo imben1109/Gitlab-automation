@@ -47,14 +47,17 @@ Copy `.env.example` to `.env` and set the following variables:
 ### Node.js (primary)
 
 ```bash
+# Build first
+npm run build
+
 # Process issue #42
-node bin/gitlab-auto.js 42
+node dist/cli.js 42
 
 # Skip confirmation prompt
-node bin/gitlab-auto.js 42 --auto-confirm
+node dist/cli.js 42 --auto-confirm
 
 # Specify a local repo path
-node bin/gitlab-auto.js 42 --repo-path=/path/to/repo
+node dist/cli.js 42 --repo-path=/path/to/repo
 ```
 
 ### npx (no install)
@@ -63,7 +66,7 @@ node bin/gitlab-auto.js 42 --repo-path=/path/to/repo
 npx gitlab-automation 42
 ```
 
-### Bash script (curl + git, Node optional)
+### Bash script (bash + curl + git, no external dependencies)
 
 ```bash
 chmod +x scripts/gitlab-automation.sh
@@ -95,17 +98,26 @@ GitLab Issue → Fetch details
 ## Project Structure
 
 ```
-├── bin/
-│   └── gitlab-auto.js          CLI entry point
 ├── src/
-│   ├── config.js               Environment config loader
-│   ├── gitlab.js               GitLab REST API client
-│   ├── copilot.js              GitHub Copilot Chat API client
-│   ├── git.js                  Git operations (simple-git)
-│   └── workflow.js             Orchestrates the full workflow
+│   ├── cli.ts                  CLI entry point (compiled → dist/cli.js)
+│   ├── config.ts               Environment config loader
+│   ├── gitlab.ts               GitLab REST API client
+│   ├── copilot.ts              GitHub Copilot Chat API client
+│   ├── git.ts                  Git operations (simple-git)
+│   └── workflow.ts             Orchestrates the full workflow
 ├── scripts/
-│   ├── gitlab-automation.sh    Bash standalone script
+│   ├── gitlab-automation.sh    Bash standalone script (bash/curl/sed only)
 │   └── gitlab-automation.ps1   PowerShell standalone script
+├── tests/
+│   ├── bash/                   bats tests for the bash script
+│   └── powershell/             Pester tests for the PowerShell script
+├── tsconfig.json               TypeScript compiler configuration
 ├── .env.example                Environment variable template
 └── package.json
+```
+
+Build TypeScript source:
+
+```bash
+npm run build   # compiles src/ → dist/
 ```

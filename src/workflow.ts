@@ -1,45 +1,56 @@
 'use strict';
 
-const chalk = require('chalk');
-const inquirer = require('inquirer');
-const config = require('./config');
+import chalk from 'chalk';
+import inquirer from 'inquirer';
+import config = require('./config');
+import * as gitlab from './gitlab';
+import * as copilot from './copilot';
+import * as git from './git';
 
 const MAX_DESCRIPTION_PREVIEW_LENGTH = 120;
-const gitlab = require('./gitlab');
-const copilot = require('./copilot');
-const git = require('./git');
 
 /**
- * Convert a string into a URL/branch-safe slug.
- * @param {string} text
- * @returns {string}
+ * Convert a string into a URL / branch-safe slug.
  */
-function slugify(text) {
+export function slugify(text: string): string {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '')
     .trim()
-    .replace(/[\s-]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replace(/\s+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+export interface RunOptions {
+  autoConfirm?: boolean;
+  /** Absolute path to a local git repo to checkout/commit in. */
+  repoPath?: string;
 }
 
 /**
  * Run the full GitLab automation workflow.
- * @param {number|string} issueNumber
- * @param {{ autoConfirm?: boolean, repoPath?: string }} options
  */
-async function run(issueNumber, options = {}) {
+export async function run(
+  issueNumber: number | string,
+  options: RunOptions = {}
+): Promise<void> {
+  // Only perform a local git checkout when an explicit path was provided.
+  // Comparing against process.cwd() is unreliable (relative vs absolute,
+  // symlinks, etc.) — instead we track whether the caller passed a value.
+  const hasExplicitRepoPath = !!(options.repoPath || process.env.TARGET_REPO_PATH);
   const repoPath = options.repoPath || config.TARGET_REPO_PATH;
 
   // Step 1: Fetch the issue
   console.log(chalk.blue(`\nFetching GitLab issue #${issueNumber}...`));
-  const issue = await gitlab.getIssue(config.GITLAB_PROJECT_ID, issueNumber);
+  const issue = await gitlab.getIssue(config.GITLAB_PROJECT_ID, Number(issueNumber));
   console.log(chalk.green(`✔ Issue: ${issue.title}`));
   if (issue.description) {
     const firstLine = issue.description.split('\n')[0];
-    const preview = firstLine.length > MAX_DESCRIPTION_PREVIEW_LENGTH
-      ? firstLine.substring(0, MAX_DESCRIPTION_PREVIEW_LENGTH) + '...'
-      : firstLine;
+    const preview =
+      firstLine.length > MAX_DESCRIPTION_PREVIEW_LENGTH
+        ? firstLine.substring(0, MAX_DESCRIPTION_PREVIEW_LENGTH) + '...'
+        : firstLine;
     console.log(chalk.gray(`  ${preview}`));
   }
 
@@ -52,23 +63,38 @@ async function run(issueNumber, options = {}) {
   try {
     await gitlab.createBranch(config.GITLAB_PROJECT_ID, branchName);
     console.log(chalk.green(`✔ Branch created: ${branchName}`));
-  } catch (err) {
-    const msg = err.response && err.response.data && err.response.data.message;
-    if (msg && (Array.isArray(msg) ? msg.join('') : msg).toLowerCase().includes('already exists')) {
-      console.log(chalk.yellow(`⚠ Branch already exists, continuing...`));
+  } catch (err: unknown) {
+    const msg =
+      err &&
+      typeof err === 'object' &&
+      'response' in err &&
+      (err as { response?: { data?: { message?: unknown } } }).response?.data?.message;
+
+    // Normalise to a plain string: join arrays, stringify objects.
+    const msgStr = Array.isArray(msg)
+      ? msg.join(' ')
+      : msg && typeof msg === 'object'
+        ? JSON.stringify(msg)
+        : typeof msg === 'string'
+          ? msg
+          : '';
+
+    if (msgStr.toLowerCase().includes('already exists')) {
+      console.log(chalk.yellow('⚠ Branch already exists, continuing...'));
     } else {
       throw err;
     }
   }
 
-  // Step 4: Checkout branch locally if a repo path was explicitly provided
-  if (repoPath !== process.cwd()) {
+  // Step 4: Checkout branch locally only if a repo path was explicitly provided
+  if (hasExplicitRepoPath) {
     console.log(chalk.blue(`Checking out branch locally in ${repoPath}...`));
     try {
       await git.checkoutNewBranch(repoPath, branchName);
       console.log(chalk.green(`✔ Checked out: ${branchName}`));
-    } catch (err) {
-      console.log(chalk.yellow(`⚠ Could not checkout branch locally: ${err.message}`));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.log(chalk.yellow(`⚠ Could not checkout branch locally: ${message}`));
     }
   }
 
@@ -80,15 +106,16 @@ async function run(issueNumber, options = {}) {
     console.log(chalk.cyan('\n─── Copilot Implementation Plan ───────────────────────────'));
     console.log(plan);
     console.log(chalk.cyan('────────────────────────────────────────────────────────────\n'));
-  } catch (err) {
-    console.log(chalk.yellow(`⚠ Copilot API unavailable: ${err.message}`));
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.log(chalk.yellow(`⚠ Copilot API unavailable: ${message}`));
     console.log(chalk.yellow('  Continuing workflow without a generated plan.\n'));
   }
 
   // Step 6: Confirm before committing
   let proceed = options.autoConfirm;
   if (!proceed) {
-    const { confirm } = await inquirer.prompt([
+    const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
       {
         type: 'confirm',
         name: 'confirm',
@@ -110,8 +137,9 @@ async function run(issueNumber, options = {}) {
   try {
     await git.commitAndPush(repoPath, branchName, commitMessage);
     console.log(chalk.green('✔ Changes committed and pushed.'));
-  } catch (err) {
-    console.log(chalk.yellow(`⚠ Git operation failed: ${err.message}`));
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.log(chalk.yellow(`⚠ Git operation failed: ${message}`));
     console.log(chalk.yellow('  Continuing to create MR anyway...'));
   }
 
@@ -122,13 +150,11 @@ async function run(issueNumber, options = {}) {
     `Related issue: ${issue.webUrl}`;
 
   const mr = await gitlab.createMergeRequest(config.GITLAB_PROJECT_ID, {
-    title: `Issue #${issue.iid}: ${issue.title}`,
-    description: mrDescription,
+    title:        `Issue #${issue.iid}: ${issue.title}`,
+    description:  mrDescription,
     sourceBranch: branchName,
     targetBranch: 'main',
   });
 
   console.log(chalk.green(`\n✔ Merge Request created: ${chalk.bold(mr.webUrl)}`));
 }
-
-module.exports = { run, slugify };
