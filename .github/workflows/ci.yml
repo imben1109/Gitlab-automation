@@ -38,3 +38,44 @@ jobs:
           name: coverage-report
           path: coverage/
           retention-days: 7
+
+  test-bash:
+    name: Bash Script Tests (bats)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install bats
+        run: sudo apt-get install -y bats
+
+      - name: Run bash script tests
+        run: bats tests/bash/gitlab-automation.bats
+
+  test-powershell:
+    name: PowerShell Script Tests (Pester)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js (used by the mock HTTP server in tests)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+
+      - name: Install Pester
+        shell: pwsh
+        run: |
+          Install-Module -Name Pester -Force -SkipPublisherCheck -MinimumVersion 5.0
+
+      - name: Run PowerShell script tests
+        shell: pwsh
+        run: |
+          Invoke-Pester -Path tests/powershell/gitlab-automation.Tests.ps1 -Output Detailed
