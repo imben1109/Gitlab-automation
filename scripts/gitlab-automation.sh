@@ -22,11 +22,10 @@ ISSUE_NUMBER="${1:-}"
 [ -z "$ISSUE_NUMBER" ] && { echo "Usage: $0 <issue-number>"; exit 1; }
 [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]] || die "issue-number must be a positive integer"
 
-ENCODED_PROJECT=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],''))" "$GITLAB_PROJECT_ID" 2>/dev/null \
-  || node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$GITLAB_PROJECT_ID" 2>/dev/null \
+ENCODED_PROJECT=$(node -e "process.stdout.write(encodeURIComponent(process.argv[1]))" "$GITLAB_PROJECT_ID" 2>/dev/null \
   || echo "$GITLAB_PROJECT_ID" | sed 's|/|%2F|g')
 # NOTE: the sed fallback only encodes '/' — if your project ID contains other
-# special characters and neither python3 nor node is available, set GITLAB_PROJECT_ID
+# special characters and node is unavailable, set GITLAB_PROJECT_ID
 # to the numeric project ID instead of the namespace/project path.
 
 API_BASE="${GITLAB_URL%/}/api/v4"
