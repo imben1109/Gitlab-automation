@@ -10,7 +10,7 @@ Automate your GitLab issue workflow using GitHub Copilot AI. Given a GitLab issu
 
 ## Prerequisites
 
-- **Node.js** ≥ 16 (for the primary CLI)
+- **Node.js** ≥ 18 (for the primary CLI)
 - **Git** installed and configured
 - **GitLab account** with a personal access token (scope: `api`)
 - **GitHub Copilot subscription** and a GitHub personal access token
