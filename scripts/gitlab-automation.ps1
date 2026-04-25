@@ -152,7 +152,7 @@ $IssueDesc
 
 ## Progress
 
-- [ ] 
+- [ ] Add your first task here
 "@
     Set-Content -Path $MarkdownFile -Value $MarkdownContent -Encoding UTF8
     Write-Ok "Issue exported to $MarkdownFile"

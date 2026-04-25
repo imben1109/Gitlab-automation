@@ -117,7 +117,7 @@ The navbar breaks on mobile.
 
 ## Progress
 
-- [ ] 
+- [ ] Add your first task here
 ```
 
 Edit this file to track your plan and progress before running `finish`.

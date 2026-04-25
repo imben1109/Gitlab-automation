@@ -181,7 +181,7 @@ function buildIssueMarkdown(
     '',
     '## Progress',
     '',
-    '- [ ] ',
+    '- [ ] Add your first task here',
     '',
   ].join('\n');
 }

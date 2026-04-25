@@ -131,7 +131,7 @@ ${ISSUE_DESC:-_No description provided._}
 
 ## Progress
 
-- [ ] 
+- [ ] Add your first task here
 MARKDOWN
 
   info "Issue exported to ${MARKDOWN_FILE}"
