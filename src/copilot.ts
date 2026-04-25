@@ -1,7 +1,6 @@
 'use strict';
 
 import axios from 'axios';
-import config = require('./config');
 
 const COPILOT_API_URL = 'https://api.githubcopilot.com/chat/completions';
 const EDITOR_VERSION  = process.env.COPILOT_EDITOR_VERSION || 'vscode/1.85.0';
@@ -36,7 +35,7 @@ export async function generatePlan(
     },
     {
       headers: {
-        Authorization:           `Bearer ${config.GITHUB_TOKEN}`,
+        Authorization:           `Bearer ${process.env.GITHUB_TOKEN || ''}`,
         'Content-Type':          'application/json',
         'Editor-Version':        EDITOR_VERSION,
         'Copilot-Integration-Id': 'vscode-chat',

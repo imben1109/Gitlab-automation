@@ -4,7 +4,6 @@ jest.mock('../src/config', () => ({
   GITLAB_URL: 'https://gitlab.com',
   GITLAB_TOKEN: 'test-gl-token',
   GITLAB_PROJECT_ID: 'test-group/test-project',
-  GITHUB_TOKEN: 'test-gh-token',
   TARGET_REPO_PATH: '/tmp/repo',
 }));
 
@@ -24,8 +23,15 @@ function mockCopilotResponse(content) {
 }
 
 describe('copilot.generatePlan', () => {
+  const ORIGINAL_ENV = process.env;
+
   beforeEach(() => {
+    process.env = { ...ORIGINAL_ENV, GITHUB_TOKEN: 'test-gh-token' };
     axios.post = jest.fn();
+  });
+
+  afterAll(() => {
+    process.env = ORIGINAL_ENV;
   });
 
   test('returns the plan text from the API response', async () => {
@@ -85,7 +91,7 @@ describe('copilot.generatePlan', () => {
     expect(messages[1].content).toContain('(no description provided)');
   });
 
-  test('uses Authorization Bearer header with GITHUB_TOKEN', async () => {
+  test('uses Authorization Bearer header with GITHUB_TOKEN from env', async () => {
     axios.post.mockResolvedValue(mockCopilotResponse(MOCK_PLAN_TEXT));
 
     await generatePlan('issue', 'desc');

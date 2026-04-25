@@ -1,24 +1,28 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    GitLab Issue Automation — PowerShell standalone script.
+    GitLab Issue Automation — Human-in-the-loop PowerShell standalone script.
 .DESCRIPTION
-    Fetches a GitLab issue, creates a branch, optionally calls Node.js for
-    Copilot planning, and creates a Merge Request — all via the GitLab REST API.
+    Two-step workflow:
+      start  — Fetch the issue, verify main is up-to-date, create a feature branch,
+               and export the issue to a Markdown file for planning.
+      finish — Commit your changes and open a GitLab Merge Request.
+.PARAMETER Command
+    'start' or 'finish' (mandatory).
 .PARAMETER IssueNumber
     The GitLab issue number to process (mandatory).
-.PARAMETER AutoConfirm
-    Skip the confirmation prompt when calling the Node.js CLI.
 .EXAMPLE
-    ./gitlab-automation.ps1 -IssueNumber 42
+    ./gitlab-automation.ps1 -Command start  -IssueNumber 42
 .EXAMPLE
-    ./gitlab-automation.ps1 -IssueNumber 42 -AutoConfirm
+    ./gitlab-automation.ps1 -Command finish -IssueNumber 42
 #>
 param(
     [Parameter(Mandatory = $true)]
-    [int]$IssueNumber,
+    [ValidateSet('start', 'finish')]
+    [string]$Command,
 
-    [switch]$AutoConfirm
+    [Parameter(Mandatory = $true)]
+    [int]$IssueNumber
 )
 
 Set-StrictMode -Version Latest
@@ -46,22 +50,20 @@ function ConvertTo-Slug {
 $GitLabUrl       = if ($env:GITLAB_URL) { $env:GITLAB_URL } else { 'https://gitlab.com' }
 $GitLabToken     = $env:GITLAB_TOKEN
 $GitLabProjectId = $env:GITLAB_PROJECT_ID
-$GitHubToken     = $env:GITHUB_TOKEN
 
 if (-not $GitLabToken)     { Fail "Missing environment variable: GITLAB_TOKEN" }
 if (-not $GitLabProjectId) { Fail "Missing environment variable: GITLAB_PROJECT_ID" }
-if (-not $GitHubToken)     { Fail "Missing environment variable: GITHUB_TOKEN" }
 
-$GitLabUrl = $GitLabUrl.TrimEnd('/')
+$GitLabUrl      = $GitLabUrl.TrimEnd('/')
 $EncodedProject = [Uri]::EscapeDataString($GitLabProjectId)
-$ApiBase = "$GitLabUrl/api/v4"
+$ApiBase        = "$GitLabUrl/api/v4"
 
 $Headers = @{
     'PRIVATE-TOKEN' = $GitLabToken
     'Content-Type'  = 'application/json'
 }
 
-# ── fetch issue ───────────────────────────────────────────────────────────────
+# ── shared: fetch issue ───────────────────────────────────────────────────────
 
 Write-Info "Fetching issue #$IssueNumber from GitLab..."
 try {
@@ -70,78 +72,126 @@ try {
 } catch {
     Fail "Failed to fetch issue #${IssueNumber}: $_"
 }
-
 Write-Ok "Issue: $($Issue.title)"
-
-# ── build branch name ─────────────────────────────────────────────────────────
 
 $BranchName = "issue-$($Issue.iid)-$(ConvertTo-Slug $Issue.title)"
 Write-Info "Branch name: $BranchName"
 
-# ── create branch via GitLab API ──────────────────────────────────────────────
+# ── command: start ────────────────────────────────────────────────────────────
 
-Write-Info "Creating branch on GitLab..."
-try {
-    $BranchBody = @{ branch = $BranchName; ref = 'main' } | ConvertTo-Json
-    $null = Invoke-RestMethod -Uri "$ApiBase/projects/$EncodedProject/repository/branches" `
-                              -Headers $Headers -Method Post -Body $BranchBody
-    Write-Ok "Branch created: $BranchName"
-} catch {
-    $ErrMsg = $_.Exception.Message
-    if ($ErrMsg -match 'already exists' -or ($_.ErrorDetails.Message -match 'already exists')) {
-        Write-Warn "Branch already exists, continuing..."
-    } else {
-        Fail "Failed to create branch: $ErrMsg"
+if ($Command -eq 'start') {
+
+    # Verify local repo is on main and up-to-date
+    try {
+        $null = & git rev-parse --is-inside-work-tree 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            $CurrentBranch = (& git rev-parse --abbrev-ref HEAD 2>&1).Trim()
+            if ($CurrentBranch -ne 'main') {
+                Fail "Expected to be on 'main' branch, but currently on '$CurrentBranch'. Switch to main before starting."
+            }
+            Write-Info "Fetching latest changes from origin/main..."
+            & git fetch origin main 2>&1 | Out-Null
+            $Behind = [int](& git rev-list --count HEAD..origin/main 2>&1).Trim()
+            if ($Behind -gt 0) {
+                Fail "Local main is $Behind commit(s) behind origin/main. Please run 'git pull' before starting."
+            }
+            Write-Ok "On main and up-to-date with origin."
+        }
+    } catch [System.Management.Automation.CommandNotFoundException] {
+        Write-Warn "git not found; skipping branch verification."
     }
-}
 
-# ── local git checkout ────────────────────────────────────────────────────────
-
-try {
-    $null = & git rev-parse --is-inside-work-tree 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        Write-Info "Checking out branch locally..."
-        & git checkout -b $BranchName 2>&1 | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "Branch may already exist locally, skipping checkout."
+    # Create branch via GitLab API
+    Write-Info "Creating branch on GitLab..."
+    try {
+        $BranchBody = @{ branch = $BranchName; ref = 'main' } | ConvertTo-Json
+        $null = Invoke-RestMethod -Uri "$ApiBase/projects/$EncodedProject/repository/branches" `
+                                  -Headers $Headers -Method Post -Body $BranchBody
+        Write-Ok "Branch created: $BranchName"
+    } catch {
+        $ErrMsg = $_.Exception.Message
+        if ($ErrMsg -match 'already exists' -or ($_.ErrorDetails.Message -match 'already exists')) {
+            Write-Warn "Branch already exists, continuing..."
         } else {
-            Write-Ok "Checked out: $BranchName"
+            Fail "Failed to create branch: $ErrMsg"
         }
     }
-} catch {
-    Write-Warn "git not found or not in a git repository."
+
+    # Checkout branch locally
+    try {
+        $null = & git rev-parse --is-inside-work-tree 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Info "Checking out branch locally..."
+            & git checkout -b $BranchName 2>&1 | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn "Branch may already exist locally, skipping checkout."
+            } else {
+                Write-Ok "Checked out: $BranchName"
+            }
+        }
+    } catch {
+        Write-Warn "Could not checkout branch locally."
+    }
+
+    # Export issue to Markdown file
+    $MarkdownFile = "issue-$($Issue.iid).md"
+    $IssueDesc    = if ($Issue.description) { $Issue.description } else { '_No description provided._' }
+    $MarkdownContent = @"
+# Issue #$($Issue.iid): $($Issue.title)
+
+**URL:** $($Issue.web_url)
+**Branch:** $BranchName
+
+## Description
+
+$IssueDesc
+
+## Planning
+
+<!-- Add your implementation plan here -->
+
+## Progress
+
+- [ ] Add your first task here
+"@
+    Set-Content -Path $MarkdownFile -Value $MarkdownContent -Encoding UTF8
+    Write-Ok "Issue exported to $MarkdownFile"
+
+    Write-Host ""
+    Write-Host "Next steps:" -ForegroundColor Cyan
+    Write-Host "  1. Review and update $MarkdownFile" -ForegroundColor Cyan
+    Write-Host "  2. Make your changes in the codebase" -ForegroundColor Cyan
+    Write-Host "  3. Run: ./gitlab-automation.ps1 -Command finish -IssueNumber $IssueNumber" -ForegroundColor Cyan
 }
 
-# ── delegate to Node.js if available ─────────────────────────────────────────
+# ── command: finish ───────────────────────────────────────────────────────────
 
-$ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
-$NodeEntry  = Join-Path $ScriptDir '..\bin\gitlab-auto.js'
+if ($Command -eq 'finish') {
 
-$NodeExists = $null -ne (Get-Command 'node' -ErrorAction SilentlyContinue)
-if ($NodeExists -and (Test-Path $NodeEntry)) {
-    Write-Info "Node.js found — delegating to gitlab-auto.js..."
-    $NodeArgs = @($IssueNumber)
-    if ($AutoConfirm) { $NodeArgs += '--auto-confirm' }
-    & node $NodeEntry @NodeArgs
-    exit $LASTEXITCODE
-}
+    # Commit and push
+    Write-Info "Committing and pushing changes..."
+    & git add . 2>&1 | Out-Null
+    $CommitMsg = "feat: issue #$($Issue.iid) - $($Issue.title)"
+    & git commit -m $CommitMsg 2>&1
+    if ($LASTEXITCODE -ne 0) { Fail "Nothing to commit. Make your changes before running finish." }
+    & git push origin $BranchName --set-upstream 2>&1
+    if ($LASTEXITCODE -ne 0) { Fail "Failed to push branch $BranchName to origin." }
+    Write-Ok "Changes committed and pushed."
 
-Write-Warn "Node.js not found — performing minimal workflow (no Copilot plan)."
+    # Create Merge Request
+    Write-Info "Creating Merge Request on GitLab..."
+    $MrBody = @{
+        title         = "Issue #$($Issue.iid): $($Issue.title)"
+        description   = "Related issue: $($Issue.web_url)"
+        source_branch = $BranchName
+        target_branch = 'main'
+    } | ConvertTo-Json
 
-# ── fallback: create MR via Invoke-RestMethod ─────────────────────────────────
-
-Write-Info "Creating Merge Request on GitLab..."
-$MrBody = @{
-    title         = "Issue #$($Issue.iid): $($Issue.title)"
-    description   = "Related issue: $($Issue.web_url)"
-    source_branch = $BranchName
-    target_branch = 'main'
-} | ConvertTo-Json
-
-try {
-    $MR = Invoke-RestMethod -Uri "$ApiBase/projects/$EncodedProject/merge_requests" `
-                            -Headers $Headers -Method Post -Body $MrBody
-    Write-Ok "Merge Request created: $($MR.web_url)"
-} catch {
-    Fail "Failed to create Merge Request: $_"
+    try {
+        $MR = Invoke-RestMethod -Uri "$ApiBase/projects/$EncodedProject/merge_requests" `
+                                -Headers $Headers -Method Post -Body $MrBody
+        Write-Ok "Merge Request created: $($MR.web_url)"
+    } catch {
+        Fail "Failed to create Merge Request: $_"
+    }
 }

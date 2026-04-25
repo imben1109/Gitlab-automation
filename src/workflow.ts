@@ -1,13 +1,11 @@
 'use strict';
 
+import * as fs from 'fs';
+import * as path from 'path';
 import chalk from 'chalk';
-import inquirer from 'inquirer';
 import config = require('./config');
 import * as gitlab from './gitlab';
-import * as copilot from './copilot';
 import * as git from './git';
-
-const MAX_DESCRIPTION_PREVIEW_LENGTH = 120;
 
 /**
  * Convert a string into a URL / branch-safe slug.
@@ -22,43 +20,55 @@ export function slugify(text: string): string {
     .replace(/^-|-$/g, '');
 }
 
-export interface RunOptions {
-  autoConfirm?: boolean;
-  /** Absolute path to a local git repo to checkout/commit in. */
+export interface StartOptions {
+  /** Absolute path to a local git repo to checkout and write the issue file in. */
+  repoPath?: string;
+}
+
+export interface FinishOptions {
+  /** Absolute path to a local git repo to commit/push from. */
   repoPath?: string;
 }
 
 /**
- * Run the full GitLab automation workflow.
+ * Step 1 — Start the workflow for a GitLab issue.
+ *
+ * 1. Fetch the issue from GitLab.
+ * 2. If inside a git repo: verify the current branch is `main` and up-to-date.
+ * 3. Create the feature branch via the GitLab API.
+ * 4. Checkout the branch locally.
+ * 5. Export the issue to `issue-<iid>.md` for manual planning and tracking.
  */
-export async function run(
+export async function start(
   issueNumber: number | string,
-  options: RunOptions = {}
+  options: StartOptions = {}
 ): Promise<void> {
-  // Only perform a local git checkout when an explicit path was provided.
-  // Comparing against process.cwd() is unreliable (relative vs absolute,
-  // symlinks, etc.) — instead we track whether the caller passed a value.
-  const hasExplicitRepoPath = !!(options.repoPath || process.env.TARGET_REPO_PATH);
   const repoPath = options.repoPath || config.TARGET_REPO_PATH;
+  const hasExplicitRepoPath = !!(options.repoPath || process.env.TARGET_REPO_PATH);
 
-  // Step 1: Fetch the issue
+  // 1. Fetch the issue
   console.log(chalk.blue(`\nFetching GitLab issue #${issueNumber}...`));
   const issue = await gitlab.getIssue(config.GITLAB_PROJECT_ID, Number(issueNumber));
   console.log(chalk.green(`✔ Issue: ${issue.title}`));
-  if (issue.description) {
-    const firstLine = issue.description.split('\n')[0];
-    const preview =
-      firstLine.length > MAX_DESCRIPTION_PREVIEW_LENGTH
-        ? firstLine.substring(0, MAX_DESCRIPTION_PREVIEW_LENGTH) + '...'
-        : firstLine;
-    console.log(chalk.gray(`  ${preview}`));
-  }
 
-  // Step 2: Build branch name
+  // 2. Build branch name
   const branchName = `issue-${issue.iid}-${slugify(issue.title)}`;
   console.log(chalk.blue(`\nBranch name: ${chalk.bold(branchName)}`));
 
-  // Step 3: Create branch via GitLab API
+  // 3. Check that the local repo is on main and up-to-date (only with an explicit repo path)
+  if (hasExplicitRepoPath) {
+    console.log(chalk.blue('Verifying local branch state...'));
+    try {
+      await git.ensureMainBranch(repoPath);
+      console.log(chalk.green('✔ On main and up-to-date with origin.'));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(chalk.red(`✘ ${message}`));
+      process.exit(1);
+    }
+  }
+
+  // 4. Create branch via GitLab API
   console.log(chalk.blue('Creating branch on GitLab...'));
   try {
     await gitlab.createBranch(config.GITLAB_PROJECT_ID, branchName);
@@ -70,7 +80,6 @@ export async function run(
       'response' in err &&
       (err as { response?: { data?: { message?: unknown } } }).response?.data?.message;
 
-    // Normalise to a plain string: join arrays, stringify objects.
     const msgStr = Array.isArray(msg)
       ? msg.join(' ')
       : msg && typeof msg === 'object'
@@ -86,7 +95,7 @@ export async function run(
     }
   }
 
-  // Step 4: Checkout branch locally only if a repo path was explicitly provided
+  // 5. Checkout branch locally (only when a repo path was explicitly provided)
   if (hasExplicitRepoPath) {
     console.log(chalk.blue(`Checking out branch locally in ${repoPath}...`));
     try {
@@ -98,63 +107,81 @@ export async function run(
     }
   }
 
-  // Step 5: Generate Copilot plan
-  console.log(chalk.blue('\nAsking GitHub Copilot to generate an implementation plan...'));
-  let plan = '';
-  try {
-    plan = await copilot.generatePlan(issue.title, issue.description);
-    console.log(chalk.cyan('\n─── Copilot Implementation Plan ───────────────────────────'));
-    console.log(plan);
-    console.log(chalk.cyan('────────────────────────────────────────────────────────────\n'));
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.log(chalk.yellow(`⚠ Copilot API unavailable: ${message}`));
-    console.log(chalk.yellow('  Continuing workflow without a generated plan.\n'));
-  }
+  // 6. Write the issue markdown file
+  const markdownPath = path.join(repoPath, `issue-${issue.iid}.md`);
+  const markdownContent = buildIssueMarkdown(issue, branchName);
+  fs.writeFileSync(markdownPath, markdownContent, 'utf-8');
+  console.log(chalk.green(`✔ Issue exported to ${markdownPath}`));
 
-  // Step 6: Confirm before committing
-  let proceed = options.autoConfirm;
-  if (!proceed) {
-    const { confirm } = await inquirer.prompt<{ confirm: boolean }>([
-      {
-        type: 'confirm',
-        name: 'confirm',
-        message: 'Do you want to proceed with committing and pushing changes?',
-        default: false,
-      },
-    ]);
-    proceed = confirm;
-  }
+  console.log(chalk.cyan('\nNext steps:'));
+  console.log(chalk.cyan(`  1. Review and update ${path.basename(markdownPath)}`));
+  console.log(chalk.cyan('  2. Make your changes in the codebase'));
+  console.log(
+    chalk.cyan(`  3. Run: gitlab-automation finish ${issue.iid}${hasExplicitRepoPath ? ` --repo-path=${repoPath}` : ''}`)
+  );
+}
 
-  if (!proceed) {
-    console.log(chalk.yellow('Skipping commit/push. Exiting.'));
-    return;
-  }
+/**
+ * Step 2 — Finish the workflow: commit changes and open a Merge Request.
+ *
+ * 1. Fetch the issue to obtain the title and URL.
+ * 2. Commit and push all staged changes with a conventional commit message.
+ * 3. Create a GitLab Merge Request whose description links back to the issue.
+ */
+export async function finish(
+  issueNumber: number | string,
+  options: FinishOptions = {}
+): Promise<void> {
+  const repoPath = options.repoPath || config.TARGET_REPO_PATH;
 
-  // Step 7: Commit and push
+  // 1. Fetch the issue
+  console.log(chalk.blue(`\nFetching GitLab issue #${issueNumber}...`));
+  const issue = await gitlab.getIssue(config.GITLAB_PROJECT_ID, Number(issueNumber));
+  console.log(chalk.green(`✔ Issue: ${issue.title}`));
+
+  const branchName = `issue-${issue.iid}-${slugify(issue.title)}`;
+
+  // 2. Commit and push
   console.log(chalk.blue('Committing and pushing changes...'));
-  const commitMessage = `feat: implement issue #${issue.iid} - ${issue.title}`;
-  try {
-    await git.commitAndPush(repoPath, branchName, commitMessage);
-    console.log(chalk.green('✔ Changes committed and pushed.'));
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.log(chalk.yellow(`⚠ Git operation failed: ${message}`));
-    console.log(chalk.yellow('  Continuing to create MR anyway...'));
-  }
+  const commitMessage = `feat: issue #${issue.iid} - ${issue.title}`;
+  await git.commitAndPush(repoPath, branchName, commitMessage);
+  console.log(chalk.green('✔ Changes committed and pushed.'));
 
-  // Step 8: Create Merge Request
+  // 3. Create Merge Request
   console.log(chalk.blue('Creating GitLab Merge Request...'));
-  const mrDescription =
-    (plan ? `## Copilot Implementation Plan\n\n${plan}\n\n---\n\n` : '') +
-    `Related issue: ${issue.webUrl}`;
-
   const mr = await gitlab.createMergeRequest(config.GITLAB_PROJECT_ID, {
     title:        `Issue #${issue.iid}: ${issue.title}`,
-    description:  mrDescription,
+    description:  `Related issue: ${issue.webUrl}`,
     sourceBranch: branchName,
     targetBranch: 'main',
   });
 
   console.log(chalk.green(`\n✔ Merge Request created: ${chalk.bold(mr.webUrl)}`));
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
+function buildIssueMarkdown(
+  issue: gitlab.GitLabIssue,
+  branchName: string
+): string {
+  return [
+    `# Issue #${issue.iid}: ${issue.title}`,
+    '',
+    `**URL:** ${issue.webUrl}`,
+    `**Branch:** ${branchName}`,
+    '',
+    '## Description',
+    '',
+    issue.description ? issue.description : '_No description provided._',
+    '',
+    '## Planning',
+    '',
+    '<!-- Add your implementation plan here -->',
+    '',
+    '## Progress',
+    '',
+    '- [ ] Add your first task here',
+    '',
+  ].join('\n');
 }

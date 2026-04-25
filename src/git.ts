@@ -16,6 +16,43 @@ export async function checkoutNewBranch(
 }
 
 /**
+ * Verify the local repo is on `main` and up-to-date with origin/main.
+ * Fetches from origin before comparing, then throws if the branch is
+ * not `main`, is ahead, or is behind.
+ *
+ * @param repoPath - absolute path to the git repository
+ */
+export async function ensureMainBranch(repoPath: string): Promise<void> {
+  const git = simpleGit(repoPath);
+
+  const status = await git.status();
+  if (status.current !== 'main') {
+    throw new Error(
+      `Expected to be on 'main' branch, but currently on '${status.current}'. ` +
+      `Please switch to main before starting.`
+    );
+  }
+
+  await git.fetch('origin', 'main');
+
+  const aheadLog = await git.log(['origin/main..HEAD']);
+  if (aheadLog.total > 0) {
+    throw new Error(
+      `Local main is ${aheadLog.total} commit(s) ahead of origin/main. ` +
+      `Push or reset before starting.`
+    );
+  }
+
+  const behindLog = await git.log(['HEAD..origin/main']);
+  if (behindLog.total > 0) {
+    throw new Error(
+      `Local main is ${behindLog.total} commit(s) behind origin/main. ` +
+      `Please run 'git pull' before starting.`
+    );
+  }
+}
+
+/**
  * Stage all changes, commit, and push the branch.
  * @param repoPath  - absolute path to the git repository
  * @param branchName - branch to push

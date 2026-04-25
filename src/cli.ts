@@ -2,13 +2,19 @@
 'use strict';
 
 import chalk from 'chalk';
-import { run } from './workflow';
+import { start, finish } from './workflow';
 
 function printUsage(): void {
-  console.log('Usage: gitlab-automation <issue-number> [--auto-confirm] [--repo-path=<path>]');
+  console.log('Usage:');
+  console.log('  gitlab-automation start  <issue-number> [--repo-path=<path>]');
+  console.log('  gitlab-automation finish <issue-number> [--repo-path=<path>]');
+  console.log('');
+  console.log('Commands:');
+  console.log('  start   Fetch the issue, verify main branch, create feature branch,');
+  console.log('          and export the issue to a Markdown file for planning.');
+  console.log('  finish  Commit your changes and open a Merge Request on GitLab.');
   console.log('');
   console.log('Options:');
-  console.log('  --auto-confirm      Skip the confirmation prompt');
   console.log('  --repo-path=<path>  Path to local git repo (overrides TARGET_REPO_PATH)');
 }
 
@@ -19,23 +25,40 @@ if (args.length === 0 || args[0] === '--help' || args[0] === '-h') {
   process.exit(0);
 }
 
-const issueNumber = parseInt(args[0], 10);
-if (isNaN(issueNumber) || issueNumber <= 0) {
-  console.error(chalk.red(`Error: issue-number must be a positive integer, got: ${args[0]}`));
+const command = args[0];
+if (command !== 'start' && command !== 'finish') {
+  console.error(chalk.red(`Error: unknown command '${command}'. Expected 'start' or 'finish'.`));
   printUsage();
   process.exit(1);
 }
 
-const autoConfirm = args.includes('--auto-confirm');
+const issueArg = args[1];
+if (!issueArg) {
+  console.error(chalk.red(`Error: <issue-number> is required.`));
+  printUsage();
+  process.exit(1);
+}
+
+const issueNumber = parseInt(issueArg, 10);
+if (isNaN(issueNumber) || issueNumber <= 0) {
+  console.error(chalk.red(`Error: issue-number must be a positive integer, got: ${issueArg}`));
+  printUsage();
+  process.exit(1);
+}
+
 let repoPath: string | undefined;
-for (const arg of args) {
+for (const arg of args.slice(2)) {
   const match = arg.match(/^--repo-path=(.+)$/);
   if (match) {
     repoPath = match[1];
   }
 }
 
-run(issueNumber, { autoConfirm, repoPath }).catch((err: unknown) => {
+const handler = command === 'start'
+  ? start(issueNumber, { repoPath })
+  : finish(issueNumber, { repoPath });
+
+handler.catch((err: unknown) => {
   const message = err instanceof Error ? err.message : String(err);
   const axiosErr = err as { response?: { status?: number; data?: unknown } };
   console.error(chalk.red(`\nError: ${message}`));

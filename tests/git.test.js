@@ -3,7 +3,7 @@
 jest.mock('simple-git');
 
 const simpleGit = require('simple-git');
-const { checkoutNewBranch, commitAndPush } = require('../src/git');
+const { checkoutNewBranch, commitAndPush, ensureMainBranch } = require('../src/git');
 
 function makeMockGit(overrides = {}) {
   return {
@@ -11,6 +11,9 @@ function makeMockGit(overrides = {}) {
     add: jest.fn().mockResolvedValue(undefined),
     commit: jest.fn().mockResolvedValue({ summary: { changes: 1 } }),
     push: jest.fn().mockResolvedValue(undefined),
+    status: jest.fn().mockResolvedValue({ current: 'main' }),
+    fetch: jest.fn().mockResolvedValue(undefined),
+    log: jest.fn().mockResolvedValue({ total: 0, all: [] }),
     ...overrides,
   };
 }
@@ -93,6 +96,51 @@ describe('git.commitAndPush', () => {
 
     await expect(commitAndPush('/tmp/repo', 'branch', 'msg')).rejects.toThrow(
       'remote rejected'
+    );
+  });
+});
+
+describe('git.ensureMainBranch', () => {
+  test('resolves when on main and up-to-date', async () => {
+    const mockGit = makeMockGit();
+    simpleGit.mockReturnValue(mockGit);
+
+    await expect(ensureMainBranch('/tmp/repo')).resolves.toBeUndefined();
+    expect(mockGit.fetch).toHaveBeenCalledWith('origin', 'main');
+  });
+
+  test('throws when not on main branch', async () => {
+    const mockGit = makeMockGit({
+      status: jest.fn().mockResolvedValue({ current: 'feature-branch' }),
+    });
+    simpleGit.mockReturnValue(mockGit);
+
+    await expect(ensureMainBranch('/tmp/repo')).rejects.toThrow(
+      "Expected to be on 'main' branch, but currently on 'feature-branch'"
+    );
+  });
+
+  test('throws when local main is behind origin/main', async () => {
+    const mockGit = makeMockGit({
+      log: jest.fn()
+        .mockResolvedValueOnce({ total: 0 })   // origin/main..HEAD = 0 (not ahead)
+        .mockResolvedValueOnce({ total: 3 }),   // HEAD..origin/main = 3 (behind)
+    });
+    simpleGit.mockReturnValue(mockGit);
+
+    await expect(ensureMainBranch('/tmp/repo')).rejects.toThrow(
+      '3 commit(s) behind origin/main'
+    );
+  });
+
+  test('throws when local main is ahead of origin/main', async () => {
+    const mockGit = makeMockGit({
+      log: jest.fn().mockResolvedValueOnce({ total: 2 }),  // ahead by 2
+    });
+    simpleGit.mockReturnValue(mockGit);
+
+    await expect(ensureMainBranch('/tmp/repo')).rejects.toThrow(
+      '2 commit(s) ahead of origin/main'
     );
   });
 });
