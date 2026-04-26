@@ -112,7 +112,7 @@ if ($Command -eq 'start') {
             }
         }
     } catch {
-        Write-Warn "git verification step failed; skipping. Details: $($_.Exception.Message)"
+        Write-Warn "Git verification failed unexpectedly; skipping. Details: $($_.Exception.Message)"
     }
 
     # Create branch via GitLab API
