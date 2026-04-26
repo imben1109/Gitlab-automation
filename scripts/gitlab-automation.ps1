@@ -81,24 +81,38 @@ Write-Info "Branch name: $BranchName"
 
 if ($Command -eq 'start') {
 
-    # Verify local repo is on main and up-to-date
+    # Verify local repo is on main and up-to-date (best effort — CI may lack a full remote)
     try {
         $null = & git rev-parse --is-inside-work-tree 2>&1
-        if ($LASTEXITCODE -eq 0) {
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Not inside a git work tree; skipping branch verification."
+        } else {
             $CurrentBranch = (& git rev-parse --abbrev-ref HEAD 2>&1).Trim()
-            if ($CurrentBranch -ne 'main') {
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn "Could not determine current branch; skipping branch verification."
+            } elseif ($CurrentBranch -ne 'main') {
                 Fail "Expected to be on 'main' branch, but currently on '$CurrentBranch'. Switch to main before starting."
+            } else {
+                Write-Info "Fetching latest changes from origin/main..."
+                & git fetch origin main 2>&1 | Out-Null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Warn "git fetch failed; skipping 'behind origin/main' check."
+                } else {
+                    $BehindText = (& git rev-list --count HEAD..origin/main 2>&1).Trim()
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Warn "Could not compute behind count; skipping behind check."
+                    } else {
+                        $Behind = [int]$BehindText
+                        if ($Behind -gt 0) {
+                            Fail "Local main is $Behind commit(s) behind origin/main. Please run 'git pull' before starting."
+                        }
+                        Write-Ok "On main and up-to-date with origin."
+                    }
+                }
             }
-            Write-Info "Fetching latest changes from origin/main..."
-            & git fetch origin main 2>&1 | Out-Null
-            $Behind = [int](& git rev-list --count HEAD..origin/main 2>&1).Trim()
-            if ($Behind -gt 0) {
-                Fail "Local main is $Behind commit(s) behind origin/main. Please run 'git pull' before starting."
-            }
-            Write-Ok "On main and up-to-date with origin."
         }
-    } catch [System.Management.Automation.CommandNotFoundException] {
-        Write-Warn "git not found; skipping branch verification."
+    } catch {
+        Write-Warn "git verification step failed; skipping. Details: $($_.Exception.Message)"
     }
 
     # Create branch via GitLab API
