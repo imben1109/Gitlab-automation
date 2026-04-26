@@ -81,7 +81,7 @@ Write-Info "Branch name: $BranchName"
 
 if ($Command -eq 'start') {
 
-    # Verify local repo is on main and up-to-date (best effort — CI may lack a full remote)
+    # Verify local repo is on main and up-to-date (best-effort: git failures are warnings, not errors)
     try {
         $null = & git rev-parse --is-inside-work-tree 2>&1
         if ($LASTEXITCODE -ne 0) {
@@ -112,7 +112,7 @@ if ($Command -eq 'start') {
             }
         }
     } catch {
-        Write-Warn "git verification step failed; skipping. Details: $($_.Exception.Message)"
+        Write-Warn "Git verification failed unexpectedly; skipping. Details: $($_.Exception.Message)"
     }
 
     # Create branch via GitLab API
