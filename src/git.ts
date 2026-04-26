@@ -3,6 +3,20 @@
 import simpleGit from 'simple-git';
 
 /**
+ * Return true if the given path is inside a valid git repository.
+ * @param repoPath - absolute path to check
+ */
+export async function isGitRepository(repoPath: string): Promise<boolean> {
+  try {
+    const git = simpleGit(repoPath);
+    await git.revparse(['--git-dir']);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Checkout a new branch in the given local repository.
  * @param repoPath - absolute path to the git repository
  * @param branchName - name of the new branch

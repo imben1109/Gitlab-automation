@@ -3,7 +3,7 @@
 jest.mock('simple-git');
 
 const simpleGit = require('simple-git');
-const { checkoutNewBranch, commitAndPush, ensureMainBranch } = require('../src/git');
+const { checkoutNewBranch, commitAndPush, ensureMainBranch, isGitRepository } = require('../src/git');
 
 function makeMockGit(overrides = {}) {
   return {
@@ -14,6 +14,7 @@ function makeMockGit(overrides = {}) {
     status: jest.fn().mockResolvedValue({ current: 'main' }),
     fetch: jest.fn().mockResolvedValue(undefined),
     log: jest.fn().mockResolvedValue({ total: 0, all: [] }),
+    revparse: jest.fn().mockResolvedValue('.git'),
     ...overrides,
   };
 }
@@ -142,5 +143,33 @@ describe('git.ensureMainBranch', () => {
     await expect(ensureMainBranch('/tmp/repo')).rejects.toThrow(
       '2 commit(s) ahead of origin/main'
     );
+  });
+});
+
+describe('git.isGitRepository', () => {
+  test('returns true when the path is inside a git repository', async () => {
+    const mockGit = makeMockGit();
+    simpleGit.mockReturnValue(mockGit);
+
+    await expect(isGitRepository('/tmp/repo')).resolves.toBe(true);
+    expect(mockGit.revparse).toHaveBeenCalledWith(['--git-dir']);
+  });
+
+  test('returns false when the path is not a git repository', async () => {
+    const mockGit = makeMockGit({
+      revparse: jest.fn().mockRejectedValue(new Error('not a git repository')),
+    });
+    simpleGit.mockReturnValue(mockGit);
+
+    await expect(isGitRepository('/tmp/not-a-repo')).resolves.toBe(false);
+  });
+
+  test('initialises simple-git with the given path', async () => {
+    const mockGit = makeMockGit();
+    simpleGit.mockReturnValue(mockGit);
+
+    await isGitRepository('/my/custom/path');
+
+    expect(simpleGit).toHaveBeenCalledWith('/my/custom/path');
   });
 });

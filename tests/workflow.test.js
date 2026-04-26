@@ -83,6 +83,7 @@ beforeEach(() => {
   gitlab.getIssue.mockResolvedValue(MOCK_ISSUE);
   gitlab.createBranch.mockResolvedValue({});
   gitlab.createMergeRequest.mockResolvedValue(MOCK_MR);
+  git.isGitRepository.mockResolvedValue(true);
   git.ensureMainBranch.mockResolvedValue(undefined);
   git.checkoutNewBranch.mockResolvedValue(undefined);
   git.commitAndPush.mockResolvedValue(undefined);
@@ -107,21 +108,21 @@ describe('workflow.start — happy path', () => {
     );
   });
 
-  test('verifies main branch when repoPath is provided', async () => {
+  test('verifies main branch when inside a valid git repository', async () => {
     await start(42, { repoPath: '/my/repo' });
 
     expect(git.ensureMainBranch).toHaveBeenCalledWith('/my/repo');
   });
 
-  test('does not verify main branch when no repoPath is set', async () => {
-    delete process.env.TARGET_REPO_PATH;
+  test('does not perform git operations when not in a git repository', async () => {
+    git.isGitRepository.mockResolvedValue(false);
     await start(42);
 
     expect(git.ensureMainBranch).not.toHaveBeenCalled();
     expect(git.checkoutNewBranch).not.toHaveBeenCalled();
   });
 
-  test('checks out branch locally when repoPath is provided', async () => {
+  test('checks out branch locally when inside a valid git repository', async () => {
     await start(42, { repoPath: '/my/repo' });
 
     expect(git.checkoutNewBranch).toHaveBeenCalledWith('/my/repo', 'issue-42-fix-the-navbar');
