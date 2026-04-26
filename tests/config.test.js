@@ -33,10 +33,11 @@ describe('config', () => {
     expect(config.TARGET_REPO_PATH).toBe('/tmp/myrepo');
   });
 
-  test('loads successfully without GITHUB_TOKEN (it is not required)', () => {
+  test('loads successfully with only the two required variables set', () => {
     process.env.GITLAB_TOKEN = 'gl-token';
     process.env.GITLAB_PROJECT_ID = 'namespace/project';
-    delete process.env.GITHUB_TOKEN;
+    delete process.env.GITLAB_URL;
+    delete process.env.TARGET_REPO_PATH;
 
     expect(loadConfig).not.toThrow();
   });

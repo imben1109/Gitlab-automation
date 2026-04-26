@@ -34,17 +34,18 @@ export interface FinishOptions {
  * Step 1 — Start the workflow for a GitLab issue.
  *
  * 1. Fetch the issue from GitLab.
- * 2. If inside a git repo: verify the current branch is `main` and up-to-date.
- * 3. Create the feature branch via the GitLab API.
- * 4. Checkout the branch locally.
- * 5. Export the issue to `issue-<iid>.md` for manual planning and tracking.
+ * 2. Detect whether repoPath (defaults to cwd) is a valid git repository.
+ * 3. If inside a git repo: verify the current branch is `main` and up-to-date.
+ * 4. Create the feature branch via the GitLab API.
+ * 5. If inside a git repo: checkout the branch locally.
+ * 6. Export the issue to `issue-<iid>.md` for manual planning and tracking.
  */
 export async function start(
   issueNumber: number | string,
   options: StartOptions = {}
 ): Promise<void> {
   const repoPath = options.repoPath || config.TARGET_REPO_PATH;
-  const hasExplicitRepoPath = !!(options.repoPath || process.env.TARGET_REPO_PATH);
+  const hasCustomPath = !!(options.repoPath || process.env.TARGET_REPO_PATH);
 
   // 1. Fetch the issue
   console.log(chalk.blue(`\nFetching GitLab issue #${issueNumber}...`));
@@ -55,8 +56,11 @@ export async function start(
   const branchName = `issue-${issue.iid}-${slugify(issue.title)}`;
   console.log(chalk.blue(`\nBranch name: ${chalk.bold(branchName)}`));
 
-  // 3. Check that the local repo is on main and up-to-date (only with an explicit repo path)
-  if (hasExplicitRepoPath) {
+  // 3. Detect whether repoPath is a valid git repository
+  const isGitRepo = await git.isGitRepository(repoPath);
+
+  // 4. Check that the local repo is on main and up-to-date (only when inside a git repo)
+  if (isGitRepo) {
     console.log(chalk.blue('Verifying local branch state...'));
     try {
       await git.ensureMainBranch(repoPath);
@@ -68,7 +72,7 @@ export async function start(
     }
   }
 
-  // 4. Create branch via GitLab API
+  // 5. Create branch via GitLab API
   console.log(chalk.blue('Creating branch on GitLab...'));
   try {
     await gitlab.createBranch(config.GITLAB_PROJECT_ID, branchName);
@@ -95,8 +99,8 @@ export async function start(
     }
   }
 
-  // 5. Checkout branch locally (only when a repo path was explicitly provided)
-  if (hasExplicitRepoPath) {
+  // 5. Checkout branch locally (only when inside a valid git repository)
+  if (isGitRepo) {
     console.log(chalk.blue(`Checking out branch locally in ${repoPath}...`));
     try {
       await git.checkoutNewBranch(repoPath, branchName);
@@ -107,7 +111,7 @@ export async function start(
     }
   }
 
-  // 6. Write the issue markdown file
+  // 7. Write the issue markdown file
   const markdownPath = path.join(repoPath, `issue-${issue.iid}.md`);
   const markdownContent = buildIssueMarkdown(issue, branchName);
   fs.writeFileSync(markdownPath, markdownContent, 'utf-8');
@@ -117,7 +121,7 @@ export async function start(
   console.log(chalk.cyan(`  1. Review and update ${path.basename(markdownPath)}`));
   console.log(chalk.cyan('  2. Make your changes in the codebase'));
   console.log(
-    chalk.cyan(`  3. Run: gitlab-automation finish ${issue.iid}${hasExplicitRepoPath ? ` --repo-path=${repoPath}` : ''}`)
+    chalk.cyan(`  3. Run: gitlab-automation finish ${issue.iid}${hasCustomPath ? ` --repo-path=${repoPath}` : ''}`)
   );
 }
 
